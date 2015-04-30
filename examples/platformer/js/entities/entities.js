@@ -20,7 +20,7 @@ game.PlayerEntity = me.Entity.extend({
         this.mutipleJump = 1;
 
         // set the display around our position
-        me.game.viewport.follow(this, me.game.viewport.AXIS.HORIZONTAL);
+        me.game.viewport.follow(this, me.game.viewport.AXIS.BOTH);
 
         // enable keyboard
         me.input.bindKey(me.input.KEY.LEFT,  "left");
@@ -238,6 +238,9 @@ game.PathEnemyEntity = me.Entity.extend({
         settings.width = settings.framewidth;
         settings.height = settings.frameheight;
 
+        // redefine the default shape (used to define path) with a shape matching the renderable 
+        settings.shapes[0] = new me.Rect(0, 0, settings.framewidth, settings.frameheight);
+        
         // call the super constructor
         this._super(me.Entity, 'init', [x, y , settings]);
 
@@ -246,8 +249,6 @@ game.PathEnemyEntity = me.Entity.extend({
         this.startX = x;
         this.endX   = x + width - settings.framewidth
         this.pos.x  = x + width - settings.framewidth;
-        // update the entity bounds since we manually change the entity position
-        this.updateBounds();
 
         // apply gravity setting if specified
         this.body.gravity = settings.gravity || me.sys.gravity;

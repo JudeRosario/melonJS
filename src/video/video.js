@@ -18,7 +18,11 @@
         // internal variables
         var canvas = null;
 
-        var deferResizeId = -1;
+        var deferResizeId = 0;
+
+        var designRatio = 1;
+        var designWidth = 0;
+        var designHeight = 0;
 
         // max display size
         var maxWidth = Infinity;
@@ -31,7 +35,7 @@
             doubleBuffering : false,
             autoScale : false,
             scale : 1.0,
-            maintainAspectRatio : true,
+            scaleMethod : "fit",
             transparent : false,
             antiAlias : false,
         };
@@ -97,8 +101,13 @@
         api.AUTO = 2;
 
         /**
-         * init the "video" part<br>
-         * return false if initialization failed (canvas not supported)
+         * Initialize the "video" system (create a canvas based on the given arguments, and the related renderer). <br>
+         * melonJS support various scaling mode : <br>
+         *  - <i>`fit`</i> : Letterboxed; content is scaled to design aspect ratio <br>
+         *  - <i>`fill-max`</i> : Canvas is resized to fit maximum design resolution; content is scaled to design aspect ratio <br>
+         *  - <i>`flex-height`</i> : Canvas height is resized to fit; content is scaled to design aspect ratio <br>
+         *  - <i>`flex-width`</i> : Canvas width is resized to fit; content is scaled to design aspect ratio <br>
+         *  - <i>`stretch`</i> : Canvas is resized to fit; content is scaled to screen aspect ratio
          * @name init
          * @memberOf me.video
          * @function
@@ -109,17 +118,17 @@
          * @param {Number} [options.renderer=me.video.CANVAS] renderer to use.
          * @param {Boolean} [options.doubleBuffering=false] enable/disable double buffering
          * @param {Number|String} [options.scale=1.0] enable scaling of the canvas ('auto' for automatic scaling)
-         * @param {Boolean} [options.maintainAspectRatio=true] maintainAspectRatio when scaling the display
+         * @param {Boolean} [options.scaleMethod="fit"] ('fit','fill-max','flex-width','flex-height','stretch') screen scaling modes
          * @param {Boolean} [options.transparent=false] whether to allow transparent pixels in the front buffer (screen)
-         * @param {Boolean} [options.antiAlias=false] wheter to enable or not video scaling interpolation
-         * @return {Boolean}
+         * @param {Boolean} [options.antiAlias=false] whether to enable or not video scaling interpolation
+         * @return {Boolean} false if initialization failed (canvas not supported)
          * @example
          * // init the video with a 640x480 canvas
          * me.video.init(640, 480, {
          *     wrapper : "screen",
          *     renderer : me.video.CANVAS,
          *     scale : "auto",
-         *     maintainAspectRatio : true,
+         *     scaleMethod : "fit",
          *     doubleBuffering : true
          * });
          */
@@ -135,7 +144,12 @@
             // sanitize potential given parameters
             settings.doubleBuffering = !!(settings.doubleBuffering);
             settings.autoScale = (settings.scale === "auto") || false;
-            settings.maintainAspectRatio = !!(settings.maintainAspectRatio);
+            settings.scaleMethod = [
+                "fill-max",
+                "flex-width",
+                "flex-height",
+                "stretch"
+            ].indexOf(settings.scaleMethod) >= 0 ? settings.scaleMethod : "fit";
             settings.transparent = !!(settings.transparent);
 
             // override renderer settings if &webgl is defined in the URL
@@ -151,6 +165,11 @@
             if (settings.autoScale || (settings.scale !== 1.0)) {
                 settings.doubleBuffering = true;
             }
+
+            // hold the requested video size ratio
+            designRatio = game_width / game_height;
+            designWidth = game_width;
+            designHeight = game_height;
 
             // default scaled size value
             var game_width_zoom = game_width * me.sys.scale.x;
@@ -226,16 +245,17 @@
                 canvas.style.height = (canvas.height / ratio) + "px";
             }
 
+
             // set max the canvas max size if CSS values are defined
             if (window.getComputedStyle) {
                 var style = window.getComputedStyle(canvas, null);
                 me.video.setMaxSize(parseInt(style.maxWidth, 10), parseInt(style.maxHeight, 10));
             }
 
+            me.game.init();
+
             // trigger an initial resize();
             me.video.onresize();
-
-            me.game.init();
 
             return true;
         };
@@ -268,8 +288,11 @@
             // max display size
             maxWidth = w || Infinity;
             maxHeight = h || Infinity;
+            // trigger a resize
+            // defer it to ensure everything is properly intialized
+            this.onresize.defer(this);
+            
         };
-
 
         /**
          * Create and return a new Canvas
@@ -332,44 +355,71 @@
             }
 
             if (settings.autoScale) {
-                // get the parent container max size
                 var parent = me.video.renderer.getScreenCanvas().parentNode;
                 var _max_width = Math.min(maxWidth, parent.width || window.innerWidth);
                 var _max_height = Math.min(maxHeight, parent.height || window.innerHeight);
+                var screenRatio = _max_width / _max_height;
+                var sWidth = Infinity;
+                var sHeight = Infinity;
 
-                if (settings.maintainAspectRatio) {
-                    // make sure we maintain the original aspect ratio
-                    var designRatio = me.video.renderer.getWidth() / me.video.renderer.getHeight();
-                    var screenRatio = _max_width / _max_height;
-                    if (screenRatio < designRatio) {
-                        scaleX = scaleY = _max_width / me.video.renderer.getWidth();
-                    }
-                    else {
-                        scaleX = scaleY = _max_height / me.video.renderer.getHeight();
-                    }
+                if (
+                    (settings.scaleMethod === "fill-max" && screenRatio < designRatio) ||
+                    (settings.scaleMethod === "flex-width")
+                ) {
+                    // resize the display canvas to fill the parent container
+                    sWidth = Math.min(maxWidth, designHeight * screenRatio);
+                    scaleX = scaleY = _max_width / sWidth;
+                    sWidth = ~~(sWidth + 0.5);
+                    this.renderer.resize(sWidth, designHeight);
+                    me.game.viewport.resize(sWidth, designHeight);
+                    /*
+                     * XXX: Workaround for not updating container child-bounds
+                     * automatically (it's expensive!)
+                     */
+                    me.game.world.updateChildBounds();
+                }
+                else if (
+                    (settings.scaleMethod === "fill-max" && screenRatio > designRatio) ||
+                    (settings.scaleMethod === "flex-height")
+                ) {
+                    // resize the display canvas to fill the parent container
+                    sHeight = Math.min(maxHeight, designWidth * (_max_height / _max_width));
+                    scaleX = scaleY = _max_height / sHeight;
+                    sHeight = ~~(sHeight + 0.5);
+                    this.renderer.resize(designWidth, sHeight);
+                    me.game.viewport.resize(designWidth, sHeight);
+                    /*
+                     * XXX: Workaround for not updating container child-bounds
+                     * automatically (it's expensive!)
+                     */
+                    me.game.world.updateChildBounds();
+                }
+                else if (settings.scaleMethod === "stretch") {
+                    // scale the display canvas to fit with the parent container
+                    scaleX = _max_width / designWidth;
+                    scaleY = _max_height / designHeight;
                 }
                 else {
-                    // scale the display canvas to fit with the parent container
-                    scaleX = _max_width / me.video.renderer.getWidth();
-                    scaleY = _max_height / me.video.renderer.getHeight();
+                    // scale the display canvas to fit the parent container
+                    // make sure we maintain the original aspect ratio
+                    if (screenRatio < designRatio) {
+                        scaleX = scaleY = _max_width / designWidth;
+                    }
+                    else {
+                        scaleX = scaleY = _max_height / designHeight;
+                    }
                 }
 
                 // adjust scaling ratio based on the device pixel ratio
                 scaleX *= me.device.getPixelRatio();
                 scaleY *= me.device.getPixelRatio();
 
-                // scale if required
-                if (scaleX !== 1 || scaleY !== 1) {
-                    if (deferResizeId >= 0) {
-                        // cancel any previous pending resize
-                        clearTimeout(deferResizeId);
-                    }
-                    deferResizeId = me.video.updateDisplaySize.defer(this, scaleX, scaleY);
-                    return;
+                if (deferResizeId) {
+                    // cancel any previous pending resize
+                    clearTimeout(deferResizeId);
                 }
+                deferResizeId = me.video.updateDisplaySize.defer(this, scaleX, scaleY);
             }
-            // make sure we have the correct relative canvas position cached
-            me.input._offset = me.video.getPos();
         };
 
         /**
@@ -385,11 +435,14 @@
             me.sys.scale.set(scaleX, scaleY);
 
             // renderer resize logic
-            this.renderer.resize(scaleX, scaleY);
+            this.renderer.scaleCanvas(scaleX, scaleY);
+            me.game.repaint();
 
+            // make sure we have the correct relative canvas position cached
             me.input._offset = me.video.getPos();
+
             // clear the timeout id
-            deferResizeId = -1;
+            deferResizeId = 0;
         };
 
         // return our api

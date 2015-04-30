@@ -56,14 +56,15 @@
      * @extends me.Renderable
      * @memberOf me
      * @constructor
-     * @param {Number} x Y coordinate
-     * @param {Number} y X coordinate
-     * @param {Number} width Layer width in pixels
-     * @param {Number} height Layer height in pixels
-     * @param {String} name Layer name
-     * @param {String} image Image name (as defined in the asset list)
-     * @param {Number} z z-index position
-     * @param {me.Vector2d} [ratio=1.0] Scrolling ratio to be applied
+     * @param {Number} x x coordinate
+     * @param {Number} y y coordinate
+     * @param {Object} settings ImageLayer properties
+     * @param {Image|String} settings.image Image reference. See {@link me.loader#getImage}
+     * @param {Number} [settings.width=image.width] Layer width in pixels
+     * @param {Number} [settings.height=image.height] Layer height in pixels
+     * @param {String} [settings.name="me.ImageLayer"] Layer name
+     * @param {Number} [settings.z=0] z-index position
+     * @param {Number|me.Vector2d} [settings.ratio=1.0] Scrolling ratio to be applied
      */
     me.ImageLayer = me.Renderable.extend({
         /**
@@ -71,29 +72,39 @@
          * @ignore
          * @function
          */
-        init: function (x, y, width, height, name, imagesrc, z, ratio) {
+        init: function (x, y, settings) {
             // layer name
-            this.name = name;
+            this.name = settings.name || "me.ImageLayer";
 
-            // get the corresponding image (throw an exception if not found)
-            this.image = (imagesrc) ? me.loader.getImage(me.utils.getBasename(imagesrc)) : null;
+            // maximum layer size
+            this.maxWidth = settings.width || Infinity;
+            this.maxHeight = settings.height || Infinity;
+
+            // get the corresponding image
+            this.image = me.utils.getImage(settings.image);
+
+            // XXX: Keep this check?
             if (!this.image) {
-                throw new me.Error("'" + imagesrc + "' file for Image Layer '" + this.name + "' not found!");
+                throw new me.Error((
+                    (typeof(settings.image) === "string") ?
+                    "'" + settings.image + "'" :
+                    "Image"
+                ) + " file for Image Layer '" + this.name + "' not found!");
             }
 
             this.imagewidth = this.image.width;
             this.imageheight = this.image.height;
 
-            // set layer width & height
-            width  = (width  ? Math.min(me.game.viewport.width, width)   : me.game.viewport.width);
-            height = (height ? Math.min(me.game.viewport.height, height) : me.game.viewport.height);
-            this._super(me.Renderable, "init", [x, y, width, height]);
+            // call the constructor
+            this._super(me.Renderable, "init", [x, y, this.maxWidth, this.maxHeight]);
+            // resize/compute the correct image layer size
+            this.resize(me.game.viewport.width, me.game.viewport.height);
 
             // specify the start offset when drawing the image (for parallax/repeat features)
             this.offset = new me.Vector2d(0, 0);
 
             // displaying order
-            this.z = z;
+            this.z = settings.z || 0;
 
             /**
              * Define the image scrolling ratio<br>
@@ -108,12 +119,12 @@
              */
             this.ratio = new me.Vector2d(1.0, 1.0);
 
-            if (typeof(ratio) !== "undefined") {
+            if (typeof(settings.ratio) !== "undefined") {
                 // little hack for backward compatiblity
-                if (typeof(ratio) === "number") {
-                    this.ratio.set(ratio, ratio);
+                if (typeof(settings.ratio) === "number") {
+                    this.ratio.set(settings.ratio, settings.ratio);
                 } else /* vector */ {
-                    this.ratio.setV(ratio);
+                    this.ratio.setV(settings.ratio);
                 }
             }
 
@@ -172,7 +183,23 @@
             this.anchorPoint.set(0, 0);
 
             // register to the viewport change notification
-            this.handle = me.event.subscribe(me.event.VIEWPORT_ONCHANGE, this.updateLayer.bind(this));
+            this.vpChangeHdlr = me.event.subscribe(me.event.VIEWPORT_ONCHANGE, this.updateLayer.bind(this));
+            this.vpResizeHdlr = me.event.subscribe(me.event.VIEWPORT_ONRESIZE, this.resize.bind(this));
+        },
+
+        /**
+         * resize the Image Layer to match the given size
+         * @name resize
+         * @memberOf me.ImageLayer
+         * @function
+         * @param {Number} w new width
+         * @param {Number} h new height
+        */
+        resize : function (w, h) {
+            this._super(me.Renderable, "resize", [
+                Math.min(w, this.maxWidth),
+                Math.min(h, this.maxHeight)
+            ]);
         },
 
         /**
@@ -282,9 +309,13 @@
         // called when the layer is destroyed
         destroy : function () {
             // cancel the event subscription
-            if (this.handle)  {
-                me.event.unsubscribe(this.handle);
-                this.handle = null;
+            if (this.vpChangeHdlr)  {
+                me.event.unsubscribe(this.vpChangeHdlr);
+                this.vpChangeHdlr = null;
+            }
+            if (this.vpResizeHdlr)  {
+                me.event.unsubscribe(this.vpResizeHdlr);
+                this.vpResizeHdlr = null;
             }
             // clear all allocated objects
             this.image = null;
@@ -394,15 +425,20 @@
                 this.preRender = me.sys.preRender;
             }
 
-            // if pre-rendering method is use, create the offline canvas
-            // TODO: this is really tied to the canvas api. need to abstract it.
+            // if pre-rendering method is use, create an offline canvas/renderer
             if (this.preRender === true) {
-                this.layerCanvas = me.video.createCanvas(this.cols * this.tilewidth, this.rows * this.tileheight);
-                this.layerSurface = me.CanvasRenderer.getContext2d(this.layerCanvas);
+                this.canvasRenderer = new me.CanvasRenderer(
+                    me.video.createCanvas(this.width, this.height),
+                    this.width, this.height,
+                    {/* use default values*/}
+                );
             }
 
             // initialize the layer data array
             this.initArray(this.cols, this.rows);
+
+            // Resize the bounding rect
+            this.resizeBounds(this.width, this.height);
         },
 
         /**
@@ -413,8 +449,7 @@
         destroy : function () {
             // clear all allocated objects
             if (this.preRender) {
-                this.layerCanvas = null;
-                this.layerSurface = null;
+                this.canvasRenderer = null;
             }
             this.renderer = null;
             // clear all allocated objects
@@ -492,8 +527,11 @@
                 // look for the corresponding tileset
                 this.tileset = this.tilesets.getTilesetByGid(tileId & TMXConstants.TMX_CLEAR_BIT_MASK);
             }
-            var tile = new me.Tile(x, y, tileId, this.tileset);
-            this.layerData[x][y] = tile;
+            var tile = this.layerData[x][y] = new me.Tile(x, y, tileId, this.tileset);
+            // draw the corresponding tile
+            if (this.preRender) {
+                this.renderer.drawTile(this.canvasRenderer, x, y, tile, tile.tileset);
+            }
             return tile;
         },
 
@@ -511,7 +549,7 @@
             this.layerData[x][y] = null;
             // erase the corresponding area in the canvas
             if (this.preRender) {
-                this.layerSurface.clearRect(x * this.tilewidth, y * this.tileheight, this.tilewidth, this.tileheight);
+                this.canvasRenderer.clearRect(x * this.tilewidth, y * this.tileheight, this.tilewidth, this.tileheight);
             }
         },
 
@@ -542,12 +580,12 @@
                 var width = Math.min(rect.width, this.width);
                 var height = Math.min(rect.height, this.height);
 
-                this.layerSurface.globalAlpha = renderer.globalAlpha() * this.getOpacity();
+                this.canvasRenderer.setGlobalAlpha(this.canvasRenderer.globalAlpha() * this.getOpacity());
 
-                if (this.layerSurface.globalAlpha > 0) {
+                if (this.canvasRenderer.globalAlpha() > 0) {
                     // draw using the cached canvas
                     renderer.drawImage(
-                        this.layerCanvas,
+                        this.canvasRenderer.getCanvas(),
                         rect.pos.x, rect.pos.y, // sx,sy
                         width, height,          // sw,sh
                         rect.pos.x, rect.pos.y, // dx,dy

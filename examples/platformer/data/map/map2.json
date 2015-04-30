@@ -6,6 +6,11 @@
          "image":"..\/img\/background.png",
          "name":"gradient_background",
          "opacity":1,
+         "properties":
+            {
+             "ratio":"1",
+             "repeat":"repeat-x"
+            },
          "type":"imagelayer",
          "visible":true,
          "width":0,

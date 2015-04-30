@@ -67,11 +67,13 @@
             if (map.background_image) {
                 // add a new image layer
                 map.mapLayers.push(new me.ImageLayer(
-                    0, 0,
-                    map.width, map.height,
-                    "background_image",
-                    map.background_image,
-                    zOrder++
+                    0, 0, {
+                        width : map.width,
+                        height : map.height,
+                        name : "background_image",
+                        image : map.background_image,
+                        z: zOrder++
+                    }
                 ));
             }
 
@@ -231,12 +233,12 @@
                         // CSV decode
                         data = me.utils.decodeCSV(data, layer.cols);
                     } else {
-                        // Base 64 decode
-                        data = me.utils.decodeBase64AsArray(data, 4);
                         // check if data is compressed
-                        if (compression !== null) {
+                        if (typeof compression === "string") {
                             data = me.utils.decompress(data, compression);
                         }
+                        // Base 64 decode
+                        data = me.utils.decodeBase64AsArray(data, 4);
                     }
                     break;
 
@@ -254,11 +256,7 @@
                     // fill the array
                     if (gid !== 0) {
                         // add a new tile to the layer
-                        var tile = layer.setTile(x, y, gid);
-                        // draw the corresponding tile
-                        if (layer.preRender) {
-                            layer.renderer.drawTile(layer.layerSurface, x, y, tile, tile.tileset);
-                        }
+                        layer.setTile(x, y, gid);
                     }
                 }
             }
@@ -276,9 +274,13 @@
                 // use the default one
                 layer.setRenderer(me.game.tmxRenderer);
             }
+            
+            // detect encoding and compression
             var encoding = Array.isArray(data[TMXConstants.TMX_TAG_DATA]) ? data[TMXConstants.TMX_TAG_ENCODING] : data[TMXConstants.TMX_TAG_DATA][TMXConstants.TMX_TAG_ENCODING];
+            var compression = Array.isArray(data[TMXConstants.TMX_TAG_DATA]) ? data[TMXConstants.TMX_TAG_COMPRESSION] : data[TMXConstants.TMX_TAG_DATA][TMXConstants.TMX_TAG_COMPRESSION];
+            
             // parse the layer data
-            this.setLayerData(layer, data[TMXConstants.TMX_TAG_DATA], encoding || "json", null);
+            this.setLayerData(layer, data[TMXConstants.TMX_TAG_DATA], encoding || "json", compression);
             return layer;
         },
 
@@ -292,7 +294,15 @@
             var ilsrc = typeof (data[TMXConstants.TMX_TAG_IMAGE]) !== "string" ? data[TMXConstants.TMX_TAG_IMAGE].source : data[TMXConstants.TMX_TAG_IMAGE];
 
             // create the layer
-            var imageLayer = new me.ImageLayer(ilx, ily, ilw * map.tilewidth, ilh * map.tileheight, iln, ilsrc, z);
+            var imageLayer = new me.ImageLayer(
+                ilx, ily, {
+                    width : ilw * map.tilewidth,
+                    height: ilh * map.tileheight,
+                    name: iln,
+                    image: ilsrc,
+                    z : z
+                }
+            );
 
             // set some additional flags
             var visible = typeof(data[TMXConstants.TMX_TAG_VISIBLE]) !== "undefined" ? data[TMXConstants.TMX_TAG_VISIBLE] : true;

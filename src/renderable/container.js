@@ -53,6 +53,7 @@
              * @memberOf me.Container
              */
             this.transform = new me.Matrix2d();
+
             // call the _super constructor
             this._super(me.Renderable,
                 "init",
@@ -60,20 +61,13 @@
                 width || Infinity,
                 height || Infinity]
             );
-            // init the bounds to an empty rect
-
-            /**
-             * Container bounds
-             * @ignore
-             */
-            this.bounds = undefined;
 
             /**
              * The array of children of this container.
              * @ignore
              */
             this.children = [];
-            // by default reuse the global me.game.setting
+
             /**
              * The property of the child object that should be used to sort on <br>
              * value : "x", "y", "z"
@@ -84,6 +78,7 @@
              * @memberOf me.Container
              */
             this.sortOn = me.game.sortOn;
+
             /**
              * Specify if the children list should be automatically sorted when adding a new child
              * @public
@@ -92,8 +87,8 @@
              * @name autoSort
              * @memberOf me.Container
              */
-
             this.autoSort = true;
+
             this.transform.identity();
 
             /**
@@ -101,6 +96,15 @@
              * @ignore
              */
             this.drawCount = 0;
+
+            /**
+             * The bounds that contains all its children
+             * @public
+             * @type me.Rect
+             * @name childBounds
+             * @memberOf me.Container
+             */
+            this.childBounds = this.getBounds().clone();
         },
 
 
@@ -138,9 +142,6 @@
             }
 
             child.ancestor = this;
-            if (child.updateAbsoluteBounds) {
-                child.updateAbsoluteBounds();
-            }
             this.children.push(child);
             if (this.autoSort === true) {
                 this.sort();
@@ -340,33 +341,32 @@
         },
 
         /**
-         * returns the bounding box for this container, the smallest rectangle object completely containing all childrens
-         * @name getBounds
+         * resizes the child bounds rectangle, based on children bounds.
+         * @name updateChildBounds
          * @memberOf me.Container
          * @function
-         * @return {me.Rect} new rectangle
+         * @return {me.Rect} updated child bounds
          */
-        getBounds : function () {
-            if (!this.bounds) {
-                this.bounds = new me.Rect(Infinity, Infinity, -Infinity, -Infinity);
-            } else {
-                // reset the rect with default values
-                this.bounds.pos.set(Infinity, Infinity);
-                this.bounds.resize(-Infinity, -Infinity);
-            }
+        updateChildBounds : function () {
+            this.childBounds.pos.set(Infinity, Infinity);
+            this.childBounds.resize(-Infinity, -Infinity);
             var childBounds;
             for (var i = this.children.length, child; i--, (child = this.children[i]);) {
                 if (child.isRenderable) {
-                    childBounds = child.getBounds();
+                    if (child instanceof me.Container) {
+                        childBounds = child.childBounds;
+                    }
+                    else {
+                        childBounds = child.getBounds();
+                    }
                     // TODO : returns an "empty" rect instead of null (e.g. EntityObject)
                     // TODO : getBounds should always return something anyway
                     if (childBounds !== null) {
-                        this.bounds.union(childBounds);
+                        this.childBounds.union(childBounds);
                     }
                 }
             }
-            // TODO : cache the value until any childs are modified? (next frame?)
-            return this.bounds;
+            return this.childBounds;
         },
 
         /**
@@ -413,7 +413,6 @@
                 }
 
                 this.children.splice(this.getChildIndex(child), 1);
-
             }
             else {
                 throw new me.Container.Error(child + " The supplied child must be a child of the caller " + this);
@@ -513,7 +512,7 @@
          */
         sort : function (recursive) {
             // do nothing if there is already a pending sort
-            if (this.pendingSort === null) {
+            if (!this.pendingSort) {
                 if (recursive === true) {
                     // trigger other child container sort function (if any)
                     for (var i = this.children.length, obj; i--, (obj = this.children[i]);) {
@@ -596,6 +595,9 @@
             var isPaused = me.state.isPaused();
             var viewport = me.game.viewport;
 
+            // Update container's absolute position
+            this._absPos.setV(this.ancestor._absPos).add(this.pos);
+
             for (var i = this.children.length, obj; i--, (obj = this.children[i]);) {
                 if (isPaused && (!obj.updateWhenPaused)) {
                     // skip this object
@@ -608,14 +610,13 @@
                         globalFloatingCounter++;
                     }
                     // check if object is visible
-                    obj.inViewport = isFloating || viewport.isVisible(obj._absoluteBounds);
+                    obj.inViewport = isFloating || viewport.isVisible(obj.getBounds());
 
                     // update our object
                     isDirty = ((obj.inViewport || obj.alwaysUpdate) && obj.update(dt)) || isDirty;
 
-                    if (obj.updateAbsoluteBounds) {
-                        obj.updateAbsoluteBounds();
-                    }
+                    // Update child's absolute position
+                    obj._absPos.setV(this._absPos).add(obj.pos);
 
                     if (globalFloatingCounter > 0) {
                         globalFloatingCounter--;
@@ -627,7 +628,6 @@
                 }
             }
 
-            this.updateAbsoluteBounds();
             return isDirty;
         },
 
@@ -659,9 +659,12 @@
             renderer.translate(this.pos.x, this.pos.y);
 
             for (var i = this.children.length, obj; i--, (obj = this.children[i]);) {
-                isFloating = obj.floating;
+                isFloating = (globalFloatingCounter > 0 || obj.floating);
                 if ((obj.inViewport || isFloating) && obj.isRenderable) {
-                    if (isFloating === true) {
+                    if (isFloating) {
+                        globalFloatingCounter++;
+                    }
+                    if (globalFloatingCounter === 1) {
                         // translate to object
                         renderer.translate(
                             viewport.screenX - this.pos.x,
@@ -672,12 +675,16 @@
                     // draw the object
                     obj.draw(renderer, rect);
 
-                    if (isFloating === true) {
+                    if (globalFloatingCounter === 1) {
                         // translate back to viewport
                         renderer.translate(
                             this.pos.x - viewport.screenX,
                             this.pos.y - viewport.screenY
                         );
+                    }
+
+                    if (isFloating) {
+                        globalFloatingCounter--;
                     }
 
                     this.drawCount++;

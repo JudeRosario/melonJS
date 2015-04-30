@@ -20,6 +20,9 @@
          * @ignore
          */
         init: function (emitter) {
+            // cache a reference to the viewport to use as our bounding box
+            this._bounds = me.game.viewport;
+
             // call the super constructor
             this._super(me.Container, "init");
 
@@ -34,16 +37,13 @@
 
             // cache the emitter for later use
             this._emitter = emitter;
-
-            // cache a reference to the viewport to use as our bounding box
-            this.bounds = me.game.viewport;
         },
 
         /**
          * @ignore
          */
         getBounds : function () {
-            return this.bounds;
+            return this._bounds;
         },
 
         /**

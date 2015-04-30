@@ -51,6 +51,8 @@
                 this.backBufferContext2D = this.context;
             }
 
+            this.fontContext2D = this.backBufferContext2D;
+
             // apply the default color to the 2d context
             this.setColor(this.globalColor);
 
@@ -109,21 +111,6 @@
             ctx.fillStyle = (col instanceof me.Color) ? col.toRGBA() : col;
             ctx.fillRect(0, 0, _canvas.width, _canvas.height);
             ctx.restore();
-        },
-
-        /**
-         * Helper method to draw the font on the backbuffer context.
-         * for different platforms.
-         * @name drawFont
-         * @memberOf me.CanvasRenderer
-         * @function
-         * @param {me.Font} fontObject An instance of me.Font
-         * @param {String} text The string of text to draw
-         * @param {Number} x The x position to draw at
-         * @param {Number} y The y position to draw at
-         */
-        drawFont : function (fontObject, text, x, y) {
-            fontObject.draw(this.backBufferContext2D, text, x, y);
         },
 
         /**
@@ -188,17 +175,6 @@
         },
 
         /**
-         * return a reference to the system canvas
-         * @name getCanvas
-         * @memberOf me.CanvasRenderer
-         * @function
-         * @return {Canvas}
-         */
-        getCanvas : function () {
-            return this.backBufferCanvas;
-        },
-
-        /**
          * return a reference to the system 2d Context
          * @name getContext
          * @memberOf me.CanvasRenderer
@@ -207,19 +183,6 @@
          */
         getContext : function () {
             return this.backBufferContext2D;
-        },
-
-        /**
-         * returns the text size based on dimensions from the font. Uses the backbuffer context
-         * @name measureText
-         * @memberOf me.CanvasRenderer
-         * @function
-         * @param {me.Font} fontObject the instance of the font object
-         * @param {String} text
-         * @return {Object}
-         */
-        measureText : function (fontObject, text) {
-            return fontObject.measureText(this.backBufferContext2D, text);
         },
 
         /**
@@ -233,20 +196,21 @@
         },
 
         /**
-         * resizes the canvas & 2d Context
-         * @name resize
+         * scales the canvas & 2d Context
+         * @name scaleCanvas
          * @memberOf me.CanvasRenderer
          * @function
          */
-        resize : function (scaleX, scaleY) {
+        scaleCanvas : function (scaleX, scaleY) {
             this.canvas.width = this.gameWidthZoom = this.backBufferCanvas.width * scaleX;
             this.canvas.height = this.gameHeightZoom = this.backBufferCanvas.height * scaleY;
-
+            
             // adjust CSS style for High-DPI devices
             if (me.device.getPixelRatio() > 1) {
                 this.canvas.style.width = (this.canvas.width / me.device.getPixelRatio()) + "px";
                 this.canvas.style.height = (this.canvas.height / me.device.getPixelRatio()) + "px";
             }
+            
             if (this.doubleBuffering && this.transparent) {
                 // Clears the front buffer for each frame blit
                 this.context.globalCompositeOperation = "copy";

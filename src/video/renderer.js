@@ -40,10 +40,8 @@
             this.gameWidthZoom = options.zoomX || width;
             this.gameHeightZoom = options.zoomY || height;
 
-            this.dimensions = { width: width, height: height };
-
             // canvas object and context
-            this.canvas = c;
+            this.canvas = this.backBufferCanvas = c;
             this.context = null;
 
             // global color
@@ -126,6 +124,17 @@
         },
 
         /**
+         * return a reference to the system canvas
+         * @name getCanvas
+         * @memberOf me.Renderer
+         * @function
+         * @return {Canvas}
+         */
+        getCanvas : function () {
+            return this.backBufferCanvas;
+        },
+
+        /**
          * return a reference to the screen canvas
          * @name getScreenCanvas
          * @memberOf me.Renderer
@@ -200,7 +209,7 @@
          * @return {Number}
          */
         getWidth : function () {
-            return this.dimensions.width;
+            return this.backBufferCanvas.width;
         },
 
         /**
@@ -211,7 +220,7 @@
          * @return {Number}
          */
         getHeight : function () {
-            return this.dimensions.height;
+            return this.backBufferCanvas.height;
         },
 
         /**
@@ -223,6 +232,18 @@
          */
         globalAlpha : function () {
             return this.globalColor.glArray[3];
+        },
+
+        /**
+         * resizes the canvas
+         * @name resize
+         * @memberOf me.Renderer
+         * @function
+         */
+        resize : function (width, height)
+        {
+            this.backBufferCanvas.width = width;
+            this.backBufferCanvas.height = height;
         },
 
         /**
@@ -239,7 +260,7 @@
                 // enable/disable antialis on the given context
                 me.agent.setPrefixed("imageSmoothingEnabled", enable === true, context);
             }
-            
+
             // disable antialias CSS scaling on the main canvas
             var cssStyle = this.canvas.style["image-rendering"];
             if (enable === false && (cssStyle === "" || cssStyle === "auto")) {
@@ -249,7 +270,13 @@
                 // if set to the standard "pixelated"
                 this.canvas.style["image-rendering"] = "auto";
             }
-        }
+        },
+
+        /**
+         * @ignore
+         */
+        drawFont : function (/*bounds*/) {},
+
     });
 
 })();

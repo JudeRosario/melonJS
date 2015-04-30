@@ -15,7 +15,7 @@
      * @constructor
      * @param {Number} x the x coordinates of the entity object
      * @param {Number} y the y coordinates of the entity object
-     * @param {Object} settings Entity properties, to be defined through Tiled or when caling the entity constructor
+     * @param {Object} settings Entity properties, to be defined through Tiled or when calling the entity constructor
      * <img src="images/object_properties.png"/>
      * @param {String} [settings.name] object entity name
      * @param {String} [settings.id] object unique IDs
@@ -24,7 +24,7 @@
      * @param {Number} [settings.frameheight] height of a single frame in the given spritesheet
      * @param {String} [settings.type] object type
      * @param {Number} [settings.collisionMask] Mask collision detection for this object
-     * @param {Boolean} [settings.noDefaultShape=false] Disable automatic creation of a default shape (as defined in Tiled), particulary useful if you use Tiled but want to use "custom" shapes
+     * @param {{me.Rect[]|me.Polygon[]|me.Line[]|me.Ellipse[]}} [settings.shapes] the initial list of collision shapes (usually populated through Tiled)
      */
     me.Entity = me.Renderable.extend(
     /** @scope me.Entity.prototype */
@@ -40,15 +40,6 @@
              * @memberOf me.Entity
              */
             this.renderable = null;
-
-            /**
-             * The bounding rectangle for this entity
-             * @protected
-             * @type {me.Rect}
-             * @name bounds
-             * @memberOf me.Ellipse
-             */
-            this.bounds = null;
 
             // ensure mandatory properties are defined
             if ((typeof settings.width !== "number") || (typeof settings.height !== "number")) {
@@ -116,17 +107,24 @@
              * @memberOf me.Entity
              */
             // initialize the default body
-            this.body = new me.Body(this, (
-                settings.noDefaultShape !== true && typeof (settings.getTMXShapes) === "function" ?
-                settings.getTMXShapes() : []
-            ));
+            var shapes = (
+                Array.isArray(settings.shapes) ?
+                settings.shapes :
+                [ new me.Rect(0, 0, this.width, this.height) ]
+            );
+            if (this.body) {
+                this.body.init(this, shapes);
+            }
+            else {
+                this.body = new me.Body(this, shapes);
+            }
 
             // ensure the entity bounds and pos are up-to-date
-            this.body.updateBounds();
+            var bounds = this.body.updateBounds();
 
             // resize the entity if required
             if (this.width === 0 && this.height === 0) {
-                this.resize(this.body.width, this.body.height);
+                this.resize(bounds.width, bounds.height);
             }
 
             // set the  collision mask if defined
@@ -144,35 +142,6 @@
             }
         },
 
-       /**
-         * returns the bounding box for this entity, the smallest rectangle object completely containing this entity body shapes
-         * @name getBounds
-         * @memberOf me.Entity
-         * @function
-         * @return {me.Rect} this entity bounding box Rectangle object
-         */
-        getBounds : function () {
-            return this.bounds;
-        },
-
-        /**
-         * update the entity bounding rect (private)
-         * when manually update the entity pos, you need to call this function
-         * @protected
-         * @name updateBounds
-         * @memberOf me.Entity
-         * @function
-         */
-        updateBounds : function () {
-            if (!this.bounds) {
-                this.bounds = new me.Rect(0, 0, 0, 0);
-            }
-            this.bounds.pos.setV(this.pos).add(this.body.pos);
-            this.bounds.resize(this.body.width, this.body.height);
-            this.updateAbsoluteBounds();
-            return this.bounds;
-        },
-
         /**
          * return the distance to the specified entity
          * @name distanceTo
@@ -182,10 +151,12 @@
          * @return {Number} distance
          */
         distanceTo: function (e) {
+            var a = this.getBounds();
+            var b = e.getBounds();
             // the me.Vector2d object also implements the same function, but
             // we have to use here the center of both entities
-            var dx = (this.pos.x + (this.width / 2))  - (e.pos.x + (e.width / 2));
-            var dy = (this.pos.y + (this.height / 2)) - (e.pos.y + (e.height / 2));
+            var dx = (a.pos.x + (a.width / 2))  - (b.pos.x + (b.width / 2));
+            var dy = (a.pos.y + (a.height / 2)) - (b.pos.y + (b.height / 2));
             return Math.sqrt(dx * dx + dy * dy);
         },
 
@@ -198,10 +169,11 @@
          * @return {Number} distance
          */
         distanceToPoint: function (v) {
+            var a = this.getBounds();
             // the me.Vector2d object also implements the same function, but
             // we have to use here the center of both entities
-            var dx = (this.pos.x + (this.width / 2))  - (v.x);
-            var dy = (this.pos.y + (this.height / 2)) - (v.y);
+            var dx = (a.pos.x + (a.width / 2))  - (v.x);
+            var dy = (a.pos.y + (a.height / 2)) - (v.y);
             return Math.sqrt(dx * dx + dy * dy);
         },
 
@@ -240,13 +212,55 @@
             return Math.atan2(ay, ax);
         },
 
+        /**
+         * update the bounding rect dimensions
+         * @private
+         * @name resizeBounds
+         * @memberOf me.Entity
+         * @function
+         */
+        resizeBounds : function (width, height) {
+            this._bounds.resize(width, height);
+        },
+
         /** @ignore */
         update : function (dt) {
             if (this.renderable) {
                 return this.renderable.update(dt);
             }
-            this._super(me.Renderable, "update", [dt]);
-            return false;
+            return this._super(me.Renderable, "update", [dt]);
+        },
+
+        /**
+         * update the bounds position when the position is modified
+         * @private
+         * @name updateBoundsPos
+         * @memberOf me.Entity
+         * @function
+         */
+        updateBoundsPos : function (x, y) {
+            var _pos = this.body.pos;
+            this._super(me.Renderable, "updateBoundsPos", [
+                x + _pos.x,
+                y + _pos.y
+            ]);
+            return this._bounds;
+        },
+
+        /**
+         * update the bounds position when the body is modified
+         * @private
+         * @name onBodyUpdate
+         * @memberOf me.Entity
+         * @function
+         */
+        onBodyUpdate : function (pos, w, h) {
+            this._bounds.pos.setV(this.pos).add(pos);
+            // XXX: This is called from the constructor, before it gets an ancestor
+            if (this.ancestor) {
+                this._bounds.pos.add(this.ancestor._absPos);
+            }
+            this._bounds.resize(w, h);
         },
 
         /**
@@ -264,13 +278,11 @@
             if (this.renderable) {
                 // translate the renderable position (relative to the entity)
                 // and keeps it in the entity defined bounds
-                var _bounds = this.getBounds();
-
-                var x = ~~(0.5 + _bounds.pos.x + (
-                    this.anchorPoint.x * (_bounds.width - this.renderable.width)
+                var x = ~~(0.5 + this.pos.x + this.body.pos.x + (
+                    this.anchorPoint.x * (this.body.width - this.renderable.width)
                 ));
-                var y = ~~(0.5 + _bounds.pos.y + (
-                    this.anchorPoint.y * (_bounds.height - this.renderable.height)
+                var y = ~~(0.5 + this.pos.y + this.body.pos.y + (
+                    this.anchorPoint.y * (this.body.height - this.renderable.height)
                 ));
                 renderer.translate(x, y);
                 this.renderable.draw(renderer);
